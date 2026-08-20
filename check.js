@@ -22,11 +22,13 @@
  *       - cron: '0 13 * * *'   # once daily
  */
 
+import { readFile, writeFile } from "node:fs/promises";
 import { checkSSLExpiry } from "./ssl-check.mjs";
 import { checkDomainExpiryWithRetry } from "./rdap-lookup.mjs";
 
-const ALERT_THRESHOLDS = [30, 14, 3]; // days out
+const ALERT_THRESHOLDS = [30, 14, 3]; // days out, largest first
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const STATE_FILE = "./alert-state.json";
 
 // ---- 1. SSL certificate check --------------------------------------
 // Handled by ssl-check.mjs — see the checkSSLExpiry import above.
@@ -35,7 +37,38 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY;
 // Handled by rdap-lookup.mjs (RDAP first, WHOIS fallback) — see
 // the checkDomainExpiryWithRetry import above.
 
-// ---- 3. Alerting -------------------------------------------------
+// ---- 3. The "notebook" — remembering what we already alerted about --
+//
+// Shape of the file: { "example.com": { "ssl": 30, "domain": null } }
+// The number stored is the LAST threshold tier we already sent an
+// alert for. null means "nothing currently outstanding."
+
+async function loadState() {
+  try {
+    const raw = await readFile(STATE_FILE, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    // First run ever, or file got deleted — start with a blank notebook.
+    return {};
+  }
+}
+
+async function saveState(state) {
+  await writeFile(STATE_FILE, JSON.stringify(state, null, 2));
+}
+
+// Given how many days are left, which "zone" are we in right now?
+// Returns the smallest threshold that still applies, or null if
+// we're outside all of them (nothing to worry about).
+function currentTier(daysLeft) {
+  const sorted = [...ALERT_THRESHOLDS].sort((a, b) => a - b); // [3, 14, 30]
+  for (const t of sorted) {
+    if (daysLeft <= t) return t;
+  }
+  return null;
+}
+
+// ---- 4. Alerting -------------------------------------------------
 
 async function sendAlert(toEmail, subject, body) {
   await fetch("https://api.resend.com/emails", {
@@ -58,17 +91,29 @@ async function sendAlert(toEmail, subject, body) {
   });
 }
 
-function crossedThreshold(daysLeft) {
-  // Alerts fire once the days-left drops to 30 or fewer — not just
-  // on the exact day. A cert with 23 days left should still alert,
-  // even though 23 isn't one of the exact numbers in the list.
-  //
-  // Heads up: with no database yet, this will re-send an email
-  // every single day once you're inside 30 days, rather than once
-  // per threshold. That's fine for testing — for real customers,
-  // you'll want to store "last alert sent" so it doesn't spam them.
-  const highestThreshold = Math.max(...ALERT_THRESHOLDS);
-  return daysLeft <= highestThreshold;
+// Decides whether to actually send, and updates the notebook either way.
+// Returns true if an alert should go out.
+function shouldAlert(state, domain, checkType, daysLeft) {
+  if (!state[domain]) state[domain] = { ssl: null, domain: null };
+  const tier = currentTier(daysLeft);
+  const lastAlerted = state[domain][checkType];
+
+  if (tier === null) {
+    // Fully outside the danger zone (e.g. just renewed) — reset the
+    // notebook so a future re-entry into the 30-day zone alerts again.
+    state[domain][checkType] = null;
+    return false;
+  }
+
+  if (tier === lastAlerted) {
+    // Already warned about this exact zone — stay quiet today.
+    return false;
+  }
+
+  // New zone (either first warning, or it got more urgent) — alert,
+  // and write down that we've now warned about this zone.
+  state[domain][checkType] = tier;
+  return true;
 }
 
 // ---- 4. Main runner ------------------------------------------------
@@ -76,30 +121,36 @@ function crossedThreshold(daysLeft) {
 async function runChecks(accounts) {
   // accounts = [{ email, domains: ["example.com", ...] }, ...]
   // pulled from your DB (Supabase) at the top of the run.
+  const state = await loadState();
+
   for (const account of accounts) {
     for (const domain of account.domains) {
       console.log(`Checking ${domain}...`);
       try {
         const ssl = await checkSSLExpiry(domain);
         console.log(`  SSL: ${ssl.daysLeft} days left`);
-        if (crossedThreshold(ssl.daysLeft)) {
+        if (shouldAlert(state, domain, "ssl", ssl.daysLeft)) {
           console.log(`  → Sending SSL alert to ${account.email}`);
           await sendAlert(
             account.email,
             `⚠️ SSL certificate for ${domain} expires in ${ssl.daysLeft} days`,
             `The SSL certificate for ${domain} expires on ${ssl.expiresAt.toDateString()}. Renew it before then to avoid a browser security warning.`
           );
+        } else {
+          console.log(`  (no new alert needed)`);
         }
 
         const reg = await checkDomainExpiryWithRetry(domain);
         console.log(`  Domain: ${reg.daysLeft} days left`);
-        if (crossedThreshold(reg.daysLeft)) {
+        if (shouldAlert(state, domain, "domain", reg.daysLeft)) {
           console.log(`  → Sending domain alert to ${account.email}`);
           await sendAlert(
             account.email,
             `⚠️ Domain registration for ${domain} expires in ${reg.daysLeft} days`,
             `${domain} is registered until ${reg.expiresAt.toDateString()}. Renew it to keep the domain from lapsing.`
           );
+        } else {
+          console.log(`  (no new alert needed)`);
         }
 
         // TODO: write ssl.daysLeft / reg.daysLeft back to Supabase
@@ -111,6 +162,9 @@ async function runChecks(accounts) {
       }
     }
   }
+
+  await saveState(state);
+  console.log("\nSaved alert-state.json");
 }
 
 // Example account fetch — replace with a real Supabase query later.

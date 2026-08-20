@@ -1,7 +1,11 @@
 {
   "revelrybeverages.com": {
     "ssl": 30,
-    "domain": null
+    "domain": null,
+    "dnsSnapshot": {
+      "mx": [],
+      "txt": []
+    }
   },
   "revelrysupply.com": {
     "ssl": null,

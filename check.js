@@ -25,6 +25,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { checkSSLExpiry } from "./ssl-check.mjs";
 import { checkDomainExpiryWithRetry } from "./rdap-lookup.mjs";
+import { checkNewCertificates } from "./cert-transparency.mjs";
+import { getDnsSnapshot, hasDnsChanged } from "./dns-check.mjs";
 
 const ALERT_THRESHOLDS = [30, 14, 3]; // days out, largest first
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -39,9 +41,19 @@ const STATE_FILE = "./alert-state.json";
 
 // ---- 3. The "notebook" — remembering what we already alerted about --
 //
-// Shape of the file: { "example.com": { "ssl": 30, "domain": null } }
-// The number stored is the LAST threshold tier we already sent an
-// alert for. null means "nothing currently outstanding."
+// Shape of the file:
+// {
+//   "example.com": {
+//     "ssl": 30,              <- last SSL alert tier sent, or null
+//     "domain": null,         <- last domain alert tier sent, or null
+//     "knownCertIds": [1,2],  <- every CT certificate ID we've seen
+//     "dnsSnapshot": {...}    <- last known MX/TXT records
+//   }
+// }
+
+function defaultDomainState() {
+  return { ssl: null, domain: null, knownCertIds: [], dnsSnapshot: null };
+}
 
 async function loadState() {
   try {
@@ -94,7 +106,7 @@ async function sendAlert(toEmail, subject, body) {
 // Decides whether to actually send, and updates the notebook either way.
 // Returns true if an alert should go out.
 function shouldAlert(state, domain, checkType, daysLeft) {
-  if (!state[domain]) state[domain] = { ssl: null, domain: null };
+  if (!state[domain]) state[domain] = defaultDomainState();
   const tier = currentTier(daysLeft);
   const lastAlerted = state[domain][checkType];
 
@@ -155,6 +167,57 @@ async function runChecks(accounts) {
 
         // TODO: write ssl.daysLeft / reg.daysLeft back to Supabase
         // so the dashboard health score reflects today's scan.
+
+        // ---- Certificate Transparency check ----
+        if (!state[domain]) state[domain] = defaultDomainState();
+        try {
+          const { newCertificates, allCertIds } = await checkNewCertificates(
+            domain,
+            state[domain].knownCertIds
+          );
+          const isFirstRun = state[domain].knownCertIds.length === 0;
+          console.log(`  CT: ${newCertificates.length} new certificate(s) since last check`);
+
+          // Don't alert on the very first run — that would just be
+          // "here's every certificate this domain has ever had,"
+          // which isn't useful. Only alert on genuinely NEW activity
+          // after we already have a baseline.
+          if (!isFirstRun && newCertificates.length > 0) {
+            console.log(`  → Sending CT alert to ${account.email}`);
+            const summary = newCertificates
+              .map((c) => `- Issued ${c.not_before} by ${c.issuer_name}`)
+              .join("\n");
+            await sendAlert(
+              account.email,
+              `🔍 New SSL certificate detected for ${domain}`,
+              `A new SSL certificate was just issued for ${domain}. If you just renewed it, this is nothing to worry about. If you didn't, this could mean someone else issued a certificate for your domain — worth checking immediately.\n\n${summary}`
+            );
+          }
+          state[domain].knownCertIds = allCertIds;
+        } catch (err) {
+          console.error(`  CT check failed (crt.sh may be temporarily down):`, err.message);
+          // Don't touch state[domain].knownCertIds — just try again next run.
+        }
+
+        // ---- DNS change check ----
+        try {
+          const currentSnapshot = await getDnsSnapshot(domain);
+          const previousSnapshot = state[domain].dnsSnapshot;
+          const changed = hasDnsChanged(previousSnapshot, currentSnapshot);
+          console.log(`  DNS: ${changed ? "changed since last check" : "unchanged"}`);
+
+          if (changed) {
+            console.log(`  → Sending DNS change alert to ${account.email}`);
+            await sendAlert(
+              account.email,
+              `⚠️ DNS records changed for ${domain}`,
+              `The MX or TXT records for ${domain} have changed since the last check. If you made this change on purpose, no action needed. If not, this can be a sign of a security issue — worth double-checking your DNS settings.`
+            );
+          }
+          state[domain].dnsSnapshot = currentSnapshot;
+        } catch (err) {
+          console.error(`  DNS check failed:`, err.message);
+        }
       } catch (err) {
         console.error(`Check failed for ${domain}:`, err.message);
         // A failed check is itself worth surfacing on the dashboard
@@ -174,7 +237,7 @@ async function getAccountsFromDB() {
   return [
     {
       email: "zonaazulcrconsulting@gmail.com",
-      domains: ["revelrysupply.com"],
+      domains: ["revelrybeverages.com"],
     },
   ];
 }

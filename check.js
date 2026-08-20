@@ -174,7 +174,7 @@ async function getAccountsFromDB() {
   return [
     {
       email: "zonaazulcrconsulting@gmail.com",
-      domains: ["revelrybeverages.com"],
+      domains: ["revelrysupply.com"],
     },
   ];
 }

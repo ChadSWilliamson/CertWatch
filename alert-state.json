@@ -2,5 +2,9 @@
   "revelrybeverages.com": {
     "ssl": 30,
     "domain": null
+  },
+  "revelrysupply.com": {
+    "ssl": null,
+    "domain": null
   }
 }

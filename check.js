@@ -21,24 +21,24 @@
  *     schedule:
  *       - cron: '0 13 * * *'   # once daily
  */
-
+ 
 import { readFile, writeFile } from "node:fs/promises";
 import { checkSSLExpiry } from "./ssl-check.mjs";
 import { checkDomainExpiryWithRetry } from "./rdap-lookup.mjs";
 import { checkNewCertificates } from "./cert-transparency.mjs";
 import { getDnsSnapshot, hasDnsChanged } from "./dns-check.mjs";
-
+ 
 const ALERT_THRESHOLDS = [30, 14, 3]; // days out, largest first
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const STATE_FILE = "./alert-state.json";
-
+ 
 // ---- 1. SSL certificate check --------------------------------------
 // Handled by ssl-check.mjs — see the checkSSLExpiry import above.
-
+ 
 // ---- 2. Domain registration check -----------------------------------
 // Handled by rdap-lookup.mjs (RDAP first, WHOIS fallback) — see
 // the checkDomainExpiryWithRetry import above.
-
+ 
 // ---- 3. The "notebook" — remembering what we already alerted about --
 //
 // Shape of the file:
@@ -50,11 +50,11 @@ const STATE_FILE = "./alert-state.json";
 //     "dnsSnapshot": {...}    <- last known MX/TXT records
 //   }
 // }
-
+ 
 function defaultDomainState() {
   return { ssl: null, domain: null, knownCertIds: [], dnsSnapshot: null };
 }
-
+ 
 async function loadState() {
   try {
     const raw = await readFile(STATE_FILE, "utf-8");
@@ -64,11 +64,11 @@ async function loadState() {
     return {};
   }
 }
-
+ 
 async function saveState(state) {
   await writeFile(STATE_FILE, JSON.stringify(state, null, 2));
 }
-
+ 
 // Given how many days are left, which "zone" are we in right now?
 // Returns the smallest threshold that still applies, or null if
 // we're outside all of them (nothing to worry about).
@@ -79,9 +79,9 @@ function currentTier(daysLeft) {
   }
   return null;
 }
-
+ 
 // ---- 4. Alerting -------------------------------------------------
-
+ 
 async function sendAlert(toEmail, subject, body) {
   await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -102,42 +102,46 @@ async function sendAlert(toEmail, subject, body) {
     }),
   });
 }
-
+ 
 // Decides whether to actually send, and updates the notebook either way.
 // Returns true if an alert should go out.
 function shouldAlert(state, domain, checkType, daysLeft) {
-  if (!state[domain]) state[domain] = defaultDomainState();
   const tier = currentTier(daysLeft);
   const lastAlerted = state[domain][checkType];
-
+ 
   if (tier === null) {
     // Fully outside the danger zone (e.g. just renewed) — reset the
     // notebook so a future re-entry into the 30-day zone alerts again.
     state[domain][checkType] = null;
     return false;
   }
-
+ 
   if (tier === lastAlerted) {
     // Already warned about this exact zone — stay quiet today.
     return false;
   }
-
+ 
   // New zone (either first warning, or it got more urgent) — alert,
   // and write down that we've now warned about this zone.
   state[domain][checkType] = tier;
   return true;
 }
-
+ 
 // ---- 4. Main runner ------------------------------------------------
-
+ 
 async function runChecks(accounts) {
   // accounts = [{ email, domains: ["example.com", ...] }, ...]
   // pulled from your DB (Supabase) at the top of the run.
   const state = await loadState();
-
+ 
   for (const account of accounts) {
     for (const domain of account.domains) {
       console.log(`Checking ${domain}...`);
+      // Merge in any new notebook fields (like knownCertIds, dnsSnapshot)
+      // for domains that were already being tracked before those
+      // features existed — without this, an old entry missing those
+      // fields would crash when we try to read them.
+      state[domain] = { ...defaultDomainState(), ...state[domain] };
       try {
         const ssl = await checkSSLExpiry(domain);
         console.log(`  SSL: ${ssl.daysLeft} days left`);
@@ -151,7 +155,7 @@ async function runChecks(accounts) {
         } else {
           console.log(`  (no new alert needed)`);
         }
-
+ 
         const reg = await checkDomainExpiryWithRetry(domain);
         console.log(`  Domain: ${reg.daysLeft} days left`);
         if (shouldAlert(state, domain, "domain", reg.daysLeft)) {
@@ -164,12 +168,11 @@ async function runChecks(accounts) {
         } else {
           console.log(`  (no new alert needed)`);
         }
-
+ 
         // TODO: write ssl.daysLeft / reg.daysLeft back to Supabase
         // so the dashboard health score reflects today's scan.
-
+ 
         // ---- Certificate Transparency check ----
-        if (!state[domain]) state[domain] = defaultDomainState();
         try {
           const { newCertificates, allCertIds } = await checkNewCertificates(
             domain,
@@ -177,7 +180,7 @@ async function runChecks(accounts) {
           );
           const isFirstRun = state[domain].knownCertIds.length === 0;
           console.log(`  CT: ${newCertificates.length} new certificate(s) since last check`);
-
+ 
           // Don't alert on the very first run — that would just be
           // "here's every certificate this domain has ever had,"
           // which isn't useful. Only alert on genuinely NEW activity
@@ -198,14 +201,14 @@ async function runChecks(accounts) {
           console.error(`  CT check failed (crt.sh may be temporarily down):`, err.message);
           // Don't touch state[domain].knownCertIds — just try again next run.
         }
-
+ 
         // ---- DNS change check ----
         try {
           const currentSnapshot = await getDnsSnapshot(domain);
           const previousSnapshot = state[domain].dnsSnapshot;
           const changed = hasDnsChanged(previousSnapshot, currentSnapshot);
           console.log(`  DNS: ${changed ? "changed since last check" : "unchanged"}`);
-
+ 
           if (changed) {
             console.log(`  → Sending DNS change alert to ${account.email}`);
             await sendAlert(
@@ -225,11 +228,11 @@ async function runChecks(accounts) {
       }
     }
   }
-
+ 
   await saveState(state);
   console.log("\nSaved alert-state.json");
 }
-
+ 
 // Example account fetch — replace with a real Supabase query later.
 // For now, this is YOUR real info, so this is a genuine live test,
 // not a simulation.
@@ -241,8 +244,9 @@ async function getAccountsFromDB() {
     },
   ];
 }
-
+ 
 console.log("Starting CertWatch check run...\n");
 getAccountsFromDB()
   .then(runChecks)
   .then(() => console.log("\nCheck run finished."));
+ 

@@ -2,6 +2,7 @@
   "revelrybeverages.com": {
     "ssl": 30,
     "domain": null,
+    "knownCertIds": [],
     "dnsSnapshot": {
       "mx": [],
       "txt": []

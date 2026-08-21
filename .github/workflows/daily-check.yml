@@ -2,18 +2,13 @@ name: CertWatch Daily Check
 
 on:
   schedule:
-    # Runs once a day at 13:00 UTC (about 7am Central Time / 8am Eastern).
-    # Cron format is: minute hour day month weekday
     - cron: '0 13 * * *'
   workflow_dispatch:
-    # This adds a manual "Run workflow" button on GitHub, so you can
-    # trigger a check by hand anytime, without waiting for the schedule.
 
 permissions:
-  contents: write
-  # Needed so the workflow can save alert-state.json back to the
-  # repo after each run — that's the "notebook" that remembers
-  # which alerts have already been sent.
+  contents: read
+  # No longer needs write access — alert state now lives in
+  # Supabase, not in a file committed back to this repo.
 
 jobs:
   check:
@@ -27,16 +22,13 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install dependencies
+        run: npm install
+
       - name: Run the checks
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           WHOIS_API_KEY: ${{ secrets.WHOIS_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: node check.js
-
-      - name: Save alert memory back to the repo
-        run: |
-          git config user.name "CertWatch Bot"
-          git config user.email "actions@github.com"
-          git add alert-state.json
-          git diff --staged --quiet || git commit -m "Update alert state"
-          git push

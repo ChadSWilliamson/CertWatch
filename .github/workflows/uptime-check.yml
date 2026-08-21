@@ -1,0 +1,32 @@
+name: CertWatch Uptime Check
+
+on:
+  schedule:
+    # Every 15 minutes. Note: GitHub only guarantees this as a
+    # best-effort schedule — during busy periods, it can run later
+    # than exactly 15 minutes. That's a GitHub limitation, not a bug
+    # in this workflow.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  uptime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run the uptime check
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node uptime.js

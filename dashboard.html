@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CertWatch — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#0A0E14; --bg-panel:#10151F; --bg-panel-hi:#161C29;
+    --ink:#F1F4F9; --ink-soft:#8B96AC;
+    --cyan:#22E5D8; --magenta:#FF3D8A; --amber:#FFB020;
+    --line: rgba(241,244,249,0.09);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{ background:var(--bg); color:var(--ink); font-family:'Inter', sans-serif; line-height:1.5; min-height:100vh; }
+  .display{ font-family:'Unbounded', sans-serif; }
+  .mono{ font-family:'JetBrains Mono', monospace; }
+  .wrap{ max-width:720px; margin:0 auto; padding:0 24px; }
+  nav{ padding:24px 0; border-bottom:1px solid var(--line); }
+  .navrow{ display:flex; align-items:center; justify-content:space-between; max-width:720px; margin:0 auto; padding:0 24px; }
+  .logo{ display:flex; align-items:center; gap:10px; font-size:20px; font-weight:700; font-family:'Unbounded',sans-serif; }
+  .logo .dot{ width:9px; height:9px; border-radius:50%; background:var(--cyan); box-shadow:0 0 0 0 rgba(34,229,216,0.6); animation: pulse-dot 2s infinite; }
+  @keyframes pulse-dot{ 0%{box-shadow:0 0 0 0 rgba(34,229,216,0.5);} 70%{box-shadow:0 0 0 8px rgba(34,229,216,0);} 100%{box-shadow:0 0 0 0 rgba(34,229,216,0);} }
+  .btn{ padding:11px 20px; border-radius:6px; font-weight:600; font-size:14px; border:1.5px solid var(--ink); background:transparent; cursor:pointer; color:var(--ink); }
+  .btn-primary{ background:var(--cyan); color:#031311; border-color:var(--cyan); }
+  .btn-primary:hover{ background:#3EEFE3; }
+  .btn:disabled{ opacity:0.5; cursor:not-allowed; }
+
+  main{ padding:56px 0; }
+  h1{ font-family:'Unbounded',sans-serif; font-size:30px; font-weight:900; margin-bottom:8px; }
+  .subtext{ color:var(--ink-soft); font-size:15px; margin-bottom:32px; }
+
+  .auth-card{ background:var(--bg-panel); border-radius:10px; padding:32px; max-width:400px; margin:80px auto; border:1px solid var(--line); box-shadow:0 40px 100px rgba(0,0,0,0.5); }
+  .auth-card h1{ font-size:22px; text-align:center; }
+  .auth-card .subtext{ text-align:center; margin-bottom:24px; }
+  label{ display:block; font-size:13px; font-weight:600; margin-bottom:6px; margin-top:16px; }
+  input{ width:100%; padding:11px 12px; border-radius:6px; border:1.5px solid var(--line); font-family:inherit; font-size:14px; background:var(--bg); color:var(--ink); }
+  input:focus{ outline:none; border-color:var(--cyan); }
+  .auth-card .btn{ width:100%; margin-top:22px; }
+  .auth-toggle{ text-align:center; margin-top:16px; font-size:13px; color:var(--ink-soft); }
+  .auth-toggle button{ background:none; border:none; color:var(--cyan); font-weight:600; text-decoration:underline; cursor:pointer; font-size:13px; }
+  .message{ font-size:13px; padding:10px 12px; border-radius:6px; margin-top:14px; }
+  .message.error{ background:rgba(255,61,138,0.1); color:var(--magenta); }
+  .message.success{ background:rgba(34,229,216,0.1); color:var(--cyan); }
+
+  .add-row{ display:flex; gap:10px; margin-bottom:28px; }
+  .add-row input{ flex:1; }
+  .add-row .btn{ white-space:nowrap; }
+  .domain-list{ display:flex; flex-direction:column; gap:1px; background:var(--line); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .domain-row{ background:var(--bg-panel); padding:16px 18px; display:flex; align-items:center; justify-content:space-between; }
+  .domain-name{ font-weight:600; font-size:15px; font-family:'JetBrains Mono',monospace; }
+  .domain-added{ font-size:12px; color:var(--ink-soft); }
+  .remove-btn{ background:none; border:none; color:var(--magenta); font-size:13px; font-weight:600; cursor:pointer; }
+  .empty-state{ text-align:center; padding:48px 24px; color:var(--ink-soft); font-size:14px; background:var(--bg-panel); border-radius:10px; border:1px dashed var(--line); }
+
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="navrow">
+    <div class="logo"><span class="dot"></span>CertWatch</div>
+    <div style="display:flex; gap:8px;">
+      <button id="logout-btn" class="btn hidden">Log out</button>
+      <button id="delete-account-btn" class="btn hidden" style="color:var(--magenta); border-color:var(--magenta);">Delete account</button>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <div id="auth-view">
+    <div class="auth-card">
+      <h1 id="auth-title">Log in</h1>
+      <p class="subtext">Watch your domains before they expire.</p>
+
+      <form id="auth-form">
+        <label for="email">Email</label>
+        <input type="email" id="email" required autocomplete="email">
+
+        <label for="password">Password</label>
+        <input type="password" id="password" required autocomplete="current-password" minlength="8">
+        <div id="password-hint" class="hidden" style="font-size:12px; color:var(--ink-soft); margin-top:6px;">
+          At least 8 characters, with uppercase, lowercase, a number, and a special character.
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="auth-submit">Log in</button>
+      </form>
+
+      <div class="auth-toggle">
+        <span id="toggle-text">Don't have an account?</span>
+        <button id="toggle-btn">Sign up</button>
+      </div>
+      <div class="auth-toggle" id="forgot-password-row">
+        <button id="forgot-password-btn">Forgot password?</button>
+      </div>
+
+      <div id="auth-message"></div>
+    </div>
+  </div>
+
+  <div id="dashboard-view" class="hidden">
+    <div style="display:flex; align-items:center; gap:16px; margin-bottom:32px; padding:20px; background:var(--bg-panel); border:1px solid var(--line); border-radius:10px;">
+      <img id="avatar-preview" src="" class="hidden" style="width:56px; height:56px; border-radius:50%; object-fit:cover; border:2px solid var(--line);">
+      <div id="avatar-placeholder" style="width:56px; height:56px; border-radius:50%; background:var(--line); display:flex; align-items:center; justify-content:center; font-family:'Unbounded',sans-serif; font-weight:700; font-size:20px; color:var(--ink-soft);">?</div>
+      <div style="flex:1;">
+        <input type="text" id="display-name" placeholder="Display name" style="margin-bottom:8px;">
+        <input type="tel" id="phone" placeholder="Phone number (optional)">
+      </div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <label class="btn" style="text-align:center; cursor:pointer; font-size:13px;">
+          Change photo
+          <input type="file" id="avatar-input" accept="image/*" class="hidden">
+        </label>
+        <button id="save-profile-btn" class="btn btn-primary" style="font-size:13px;">Save</button>
+      </div>
+    </div>
+    <div id="profile-message"></div>
+
+    <h1>Your domains</h1>
+    <p class="subtext" id="account-email"></p>
+
+    <div class="add-row">
+      <input type="text" id="new-domain" placeholder="example.com">
+      <button id="add-domain-btn" class="btn btn-primary">Add domain</button>
+    </div>
+    <div id="dashboard-message"></div>
+
+    <div id="domain-list" class="domain-list hidden"></div>
+    <div id="empty-state" class="empty-state hidden">
+      No domains yet. Add one above to start monitoring it.
+    </div>
+  </div>
+
+</main>
+
+<script>
+  // ---- Fill these in with your real Supabase project details ----
+  const SUPABASE_URL = "https://bvyffyzzoloiiooeaaup.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2eWZmeXp6b2xvaWlvb2VhYXVwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyNjIyODgsImV4cCI6MjEwMjgzODI4OH0.CKTTn-UYD9i4gpRo-sBFsY86x6tx0EF4anhwWnG2zWQ";
+
+  const { createClient } = supabase;
+  const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let isSignUp = false;
+  let currentAccountId = null;
+
+  const authView = document.getElementById("auth-view");
+  const dashboardView = document.getElementById("dashboard-view");
+  const authForm = document.getElementById("auth-form");
+  const authTitle = document.getElementById("auth-title");
+  const authSubmit = document.getElementById("auth-submit");
+  const toggleBtn = document.getElementById("toggle-btn");
+  const forgotPasswordBtn = document.getElementById("forgot-password-btn");
+  const toggleText = document.getElementById("toggle-text");
+  const authMessage = document.getElementById("auth-message");
+  const logoutBtn = document.getElementById("logout-btn");
+  const deleteAccountBtn = document.getElementById("delete-account-btn");
+  const accountEmailEl = document.getElementById("account-email");
+  const domainListEl = document.getElementById("domain-list");
+  const emptyStateEl = document.getElementById("empty-state");
+  const addDomainBtn = document.getElementById("add-domain-btn");
+  const newDomainInput = document.getElementById("new-domain");
+  const dashboardMessage = document.getElementById("dashboard-message");
+  const displayNameInput = document.getElementById("display-name");
+  const phoneInput = document.getElementById("phone");
+  const avatarInput = document.getElementById("avatar-input");
+  const avatarPreview = document.getElementById("avatar-preview");
+  const avatarPlaceholder = document.getElementById("avatar-placeholder");
+  const saveProfileBtn = document.getElementById("save-profile-btn");
+  const profileMessage = document.getElementById("profile-message");
+  let currentUserId = null;
+
+  const passwordHint = document.getElementById("password-hint");
+
+  toggleBtn.addEventListener("click", () => {
+    isSignUp = !isSignUp;
+    authTitle.textContent = isSignUp ? "Sign up" : "Log in";
+    authSubmit.textContent = isSignUp ? "Sign up" : "Log in";
+    toggleText.textContent = isSignUp ? "Already have an account?" : "Don't have an account?";
+    toggleBtn.textContent = isSignUp ? "Log in" : "Sign up";
+    authMessage.innerHTML = "";
+    passwordHint.classList.toggle("hidden", !isSignUp);
+  });
+
+  forgotPasswordBtn.addEventListener("click", async () => {
+    const email = document.getElementById("email").value.trim();
+    if (!email) {
+      authMessage.innerHTML = '<div class="message error">Type your email above first, then click "Forgot password?" again.</div>';
+      return;
+    }
+    authMessage.innerHTML = "";
+    forgotPasswordBtn.disabled = true;
+
+    const { error } = await db.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.href,
+    });
+
+    if (error) {
+      authMessage.innerHTML = '<div class="message error">' + error.message + '</div>';
+    } else {
+      authMessage.innerHTML = '<div class="message success">Check your email for a password reset link.</div>';
+    }
+    forgotPasswordBtn.disabled = false;
+  });
+
+  // When someone clicks the reset link in their email, Supabase
+  // sends them back here in a special "password recovery" state.
+  // Detect that and switch the form into "set a new password" mode.
+  let inRecoveryMode = false;
+  db.auth.onAuthStateChange((event) => {
+    if (event === "PASSWORD_RECOVERY") {
+      inRecoveryMode = true;
+      authTitle.textContent = "Set a new password";
+      document.querySelector('label[for="email"]').classList.add("hidden");
+      document.getElementById("email").classList.add("hidden");
+      passwordHint.classList.remove("hidden");
+      authSubmit.textContent = "Set new password";
+      document.querySelectorAll(".auth-toggle").forEach((el) => el.classList.add("hidden"));
+    }
+  });
+
+  function checkPasswordStrength(password) {
+    const problems = [];
+    if (password.length < 8) problems.push("at least 8 characters");
+    if (!/[a-z]/.test(password)) problems.push("a lowercase letter");
+    if (!/[A-Z]/.test(password)) problems.push("an uppercase letter");
+    if (!/[0-9]/.test(password)) problems.push("a number");
+    if (!/[!@#$%^&*()_+\-=[\]{};':"|<>?,./`~]/.test(password)) problems.push("a special character (like ! or @ or #)");
+    return problems;
+  }
+
+  authForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    if (inRecoveryMode) {
+      const password = document.getElementById("password").value;
+      const problems = checkPasswordStrength(password);
+      if (problems.length > 0) {
+        authMessage.innerHTML = '<div class="message error">Password needs: ' + problems.join(", ") + '.</div>';
+        return;
+      }
+      authSubmit.disabled = true;
+      const { error } = await db.auth.updateUser({ password });
+      if (error) {
+        authMessage.innerHTML = '<div class="message error">' + error.message + '</div>';
+      } else {
+        authMessage.innerHTML = '<div class="message success">Password updated. Reloading...</div>';
+        setTimeout(() => location.reload(), 2000);
+      }
+      authSubmit.disabled = false;
+      return;
+    }
+
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+    authMessage.innerHTML = "";
+
+    if (isSignUp) {
+      const problems = checkPasswordStrength(password);
+      if (problems.length > 0) {
+        authMessage.innerHTML = '<div class="message error">Password needs: ' + problems.join(", ") + '.</div>';
+        return;
+      }
+    }
+
+    authSubmit.disabled = true;
+
+    try {
+      if (isSignUp) {
+        const { error } = await db.auth.signUp({ email, password });
+        if (error) throw error;
+        authMessage.innerHTML = '<div class="message success">Check your email to confirm your account, then log in.</div>';
+      } else {
+        const { error } = await db.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        await onLoggedIn();
+      }
+    } catch (err) {
+      authMessage.innerHTML = '<div class="message error">' + err.message + '</div>';
+    } finally {
+      authSubmit.disabled = false;
+    }
+  });
+
+  logoutBtn.addEventListener("click", async () => {
+    await db.auth.signOut();
+    location.reload();
+  });
+
+  deleteAccountBtn.addEventListener("click", async () => {
+    const confirmed = confirm(
+      "This permanently deletes your account, every domain you're monitoring, and your login. This cannot be undone. Are you sure?"
+    );
+    if (!confirmed) return;
+
+    deleteAccountBtn.disabled = true;
+    const { error } = await db.rpc("delete_own_account");
+
+    if (error) {
+      dashboardMessage.innerHTML = '<div class="message error">' + error.message + '</div>';
+      deleteAccountBtn.disabled = false;
+      return;
+    }
+
+    alert("Your account has been deleted.");
+    location.reload();
+  });
+
+  async function ensureAccountExists(user) {
+    const { data, error } = await db.rpc("claim_account");
+    if (error) throw error;
+    return data;
+  }
+
+  async function onLoggedIn() {
+    const { data: { user } } = await db.auth.getUser();
+    if (!user) return;
+
+    const account = await ensureAccountExists(user);
+    currentAccountId = account.id;
+    currentUserId = user.id;
+
+    authView.classList.add("hidden");
+    dashboardView.classList.remove("hidden");
+    logoutBtn.classList.remove("hidden");
+    deleteAccountBtn.classList.remove("hidden");
+    accountEmailEl.textContent = "Logged in as " + user.email;
+
+    displayNameInput.value = account.display_name || "";
+    phoneInput.value = account.phone || "";
+    if (account.avatar_url) {
+      avatarPreview.src = account.avatar_url;
+      avatarPreview.classList.remove("hidden");
+      avatarPlaceholder.classList.add("hidden");
+    } else {
+      avatarPlaceholder.textContent = (account.display_name || user.email)[0].toUpperCase();
+    }
+
+    await loadDomains();
+  }
+
+  async function loadDomains() {
+    const { data, error } = await db
+      .from("domains")
+      .select("id, hostname, created_at")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      dashboardMessage.innerHTML = '<div class="message error">' + error.message + '</div>';
+      return;
+    }
+
+    if (data.length === 0) {
+      domainListEl.classList.add("hidden");
+      emptyStateEl.classList.remove("hidden");
+      return;
+    }
+
+    emptyStateEl.classList.add("hidden");
+    domainListEl.classList.remove("hidden");
+    domainListEl.innerHTML = data.map(function(d) {
+      return '<div class="domain-row" data-id="' + d.id + '">' +
+        '<div>' +
+          '<div class="domain-name">' + d.hostname + '</div>' +
+          '<div class="domain-added">Added ' + new Date(d.created_at).toLocaleDateString() + '</div>' +
+        '</div>' +
+        '<button class="remove-btn" data-id="' + d.id + '">Remove</button>' +
+      '</div>';
+    }).join("");
+
+    document.querySelectorAll(".remove-btn").forEach(function(btn) {
+      btn.addEventListener("click", async function() {
+        const id = btn.getAttribute("data-id");
+        await db.from("domains").delete().eq("id", id);
+        await loadDomains();
+      });
+    });
+  }
+
+  addDomainBtn.addEventListener("click", async () => {
+    const hostname = newDomainInput.value.trim().toLowerCase();
+    dashboardMessage.innerHTML = "";
+    if (!hostname) return;
+
+    addDomainBtn.disabled = true;
+    const { error } = await db
+      .from("domains")
+      .insert({ account_id: currentAccountId, hostname: hostname });
+
+    if (error) {
+      dashboardMessage.innerHTML = '<div class="message error">' + error.message + '</div>';
+    } else {
+      newDomainInput.value = "";
+      await loadDomains();
+    }
+    addDomainBtn.disabled = false;
+  });
+
+  avatarInput.addEventListener("change", () => {
+    const file = avatarInput.files[0];
+    if (!file) return;
+    // Show an instant local preview before the upload finishes.
+    avatarPreview.src = URL.createObjectURL(file);
+    avatarPreview.classList.remove("hidden");
+    avatarPlaceholder.classList.add("hidden");
+  });
+
+  saveProfileBtn.addEventListener("click", async () => {
+    saveProfileBtn.disabled = true;
+    profileMessage.innerHTML = "";
+
+    try {
+      let avatarUrl = null;
+      const file = avatarInput.files[0];
+
+      if (file) {
+        const filePath = currentUserId + "/avatar-" + Date.now();
+        const { error: uploadError } = await db.storage
+          .from("avatars")
+          .upload(filePath, file, { upsert: true });
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = db.storage.from("avatars").getPublicUrl(filePath);
+        avatarUrl = urlData.publicUrl;
+      }
+
+      const updates = {
+        display_name: displayNameInput.value.trim(),
+        phone: phoneInput.value.trim(),
+      };
+      if (avatarUrl) updates.avatar_url = avatarUrl;
+
+      const { error } = await db.from("accounts").update(updates).eq("id", currentAccountId);
+      if (error) throw error;
+
+      profileMessage.innerHTML = '<div class="message success">Profile saved.</div>';
+    } catch (err) {
+      profileMessage.innerHTML = '<div class="message error">' + err.message + '</div>';
+    } finally {
+      saveProfileBtn.disabled = false;
+    }
+  });
+
+  (async function() {
+    const { data: { user } } = await db.auth.getUser();
+    if (user) await onLoggedIn();
+  })();
+</script>
+
+</body>
+</html>

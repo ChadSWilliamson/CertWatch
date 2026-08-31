@@ -1,3 +1,4 @@
+cat > check.js << 'EOF'
 /**
  * CertWatch — core monitoring check
  * -----------------------------------------------------------------
@@ -13,6 +14,7 @@ import { checkSSLExpiry } from "./ssl-check.mjs";
 import { checkDomainExpiryWithRetry } from "./rdap-lookup.mjs";
 import { checkNewCertificates } from "./cert-transparency.mjs";
 import { getDnsSnapshot, hasDnsChanged } from "./dns-check.mjs";
+import { extractSubdomains, checkSubdomainTakeovers } from "./subdomain-takeover.mjs";
 
 const ALERT_THRESHOLDS = [30, 14, 3]; // days out
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -24,8 +26,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 // ---- 1. Pull every domain to check, from the real database ---------
 
 async function loadDomainsToCheck() {
-  // Joins domains to accounts so we get the owner's email alongside
-  // each domain in one query.
   const { data, error } = await supabase
     .from("domains")
     .select("id, hostname, accounts(email)");
@@ -42,7 +42,7 @@ async function loadDomainsToCheck() {
 // ---- 2. Load / save the "notebook" — now a real database table -----
 
 function defaultDomainState() {
-  return { ssl: null, domain: null, knownCertIds: [], dnsSnapshot: null };
+  return { ssl: null, domain: null, knownCertIds: [], dnsSnapshot: null, flaggedTakeoverHostnames: [] };
 }
 
 async function loadState() {
@@ -56,6 +56,7 @@ async function loadState() {
       domain: row.domain_tier_alerted,
       knownCertIds: row.known_cert_ids || [],
       dnsSnapshot: row.dns_snapshot,
+      flaggedTakeoverHostnames: row.flagged_takeover_hostnames || [],
     };
   }
   return state;
@@ -68,6 +69,7 @@ async function saveState(state) {
     domain_tier_alerted: s.domain,
     known_cert_ids: s.knownCertIds,
     dns_snapshot: s.dnsSnapshot,
+    flagged_takeover_hostnames: s.flaggedTakeoverHostnames,
     last_checked_at: new Date().toISOString(),
     last_ssl_days_left: s.lastSslDaysLeft ?? null,
     last_domain_days_left: s.lastDomainDaysLeft ?? null,
@@ -80,7 +82,7 @@ async function saveState(state) {
 }
 
 function currentTier(daysLeft) {
-  const sorted = [...ALERT_THRESHOLDS].sort((a, b) => a - b); // [3, 14, 30]
+  const sorted = [...ALERT_THRESHOLDS].sort((a, b) => a - b);
   for (const t of sorted) {
     if (daysLeft <= t) return t;
   }
@@ -161,8 +163,9 @@ async function runChecks() {
       console.error(`  SSL/domain check failed:`, err.message);
     }
 
+    let ctCerts = null;
     try {
-      const { newCertificates, allCertIds } = await checkNewCertificates(
+      const { newCertificates, allCertIds, allCerts } = await checkNewCertificates(
         hostname,
         state[domainId].knownCertIds
       );
@@ -181,8 +184,42 @@ async function runChecks() {
         );
       }
       state[domainId].knownCertIds = allCertIds;
+      ctCerts = allCerts;
     } catch (err) {
       console.error(`  CT check failed (crt.sh may be down):`, err.message);
+    }
+
+    try {
+      if (ctCerts) {
+        const subdomains = extractSubdomains(ctCerts, hostname);
+        const { newFindings, allFlaggedHostnames } = await checkSubdomainTakeovers(
+          subdomains,
+          state[domainId].flaggedTakeoverHostnames
+        );
+        console.log(`  Takeover: checked ${subdomains.length} subdomain(s), ${newFindings.length} new finding(s)`);
+
+        if (newFindings.length > 0) {
+          console.log(`  → Sending subdomain takeover alert to ${email}`);
+          const summary = newFindings
+            .map(
+              (f) =>
+                `- ${f.hostname} → CNAME points to ${f.cnameTarget} (${f.service}${
+                  f.confirmed ? ", confirmed unclaimed" : ", unreachable — worth a manual look"
+                })`
+            )
+            .join("\n");
+          await sendAlert(
+            email,
+            `🚨 Possible subdomain takeover risk for ${hostname}`,
+            `One or more subdomains of ${hostname} point to a cloud resource that looks unclaimed. If registered by someone else, they could serve content under your domain.\n\n${summary}`
+          );
+        }
+        state[domainId].flaggedTakeoverHostnames = allFlaggedHostnames;
+      } else {
+        console.log(`  Takeover: skipped (CT check failed above, no subdomain list available)`);
+      }
+    } catch (err) {
+      console.error(`  Takeover check failed:`, err.message);
     }
 
     try {
@@ -210,3 +247,4 @@ async function runChecks() {
 
 console.log("Starting CertWatch check run...\n");
 runChecks().then(() => console.log("\nCheck run finished."));
+EOF

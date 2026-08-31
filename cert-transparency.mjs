@@ -1,3 +1,4 @@
+cat > cert-transparency.mjs << 'EOF'
 /**
  * cert-transparency.mjs
  * -----------------------------------------------------------------
@@ -41,7 +42,10 @@ async function fetchCertificates(domain, attempts = 3) {
  * @param {string} domain
  * @param {number[]} knownCertIds - IDs seen on a previous run (from
  *   your saved state — empty array on the very first run).
- * @returns {{ newCertificates: object[], allCertIds: number[] }}
+ * @returns {{ newCertificates: object[], allCertIds: number[], allCerts: object[] }}
+ *   allCerts is the full raw crt.sh response — subdomain-takeover.mjs
+ *   reads subdomain names out of it so it doesn't need its own
+ *   separate crt.sh call.
  */
 export async function checkNewCertificates(domain, knownCertIds = []) {
   const certs = await fetchCertificates(domain);
@@ -50,5 +54,6 @@ export async function checkNewCertificates(domain, knownCertIds = []) {
   const newCertificates = certs.filter((c) => !knownSet.has(c.id));
   const allCertIds = certs.map((c) => c.id);
 
-  return { newCertificates, allCertIds };
+  return { newCertificates, allCertIds, allCerts: certs };
 }
+EOF

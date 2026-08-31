@@ -1,4 +1,3 @@
-cat > check.js << 'EOF'
 /**
  * CertWatch — core monitoring check
  * -----------------------------------------------------------------
@@ -247,4 +246,3 @@ async function runChecks() {
 
 console.log("Starting CertWatch check run...\n");
 runChecks().then(() => console.log("\nCheck run finished."));
-EOF

@@ -1,4 +1,3 @@
-cat > cert-transparency.mjs << 'EOF'
 /**
  * cert-transparency.mjs
  * -----------------------------------------------------------------
@@ -56,4 +55,3 @@ export async function checkNewCertificates(domain, knownCertIds = []) {
 
   return { newCertificates, allCertIds, allCerts: certs };
 }
-EOF

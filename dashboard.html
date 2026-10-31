@@ -56,6 +56,39 @@
   .remove-btn{ background:none; border:none; color:var(--magenta); font-size:13px; font-weight:600; cursor:pointer; }
   .empty-state{ text-align:center; padding:48px 24px; color:var(--ink-soft); font-size:14px; background:var(--bg-panel); border-radius:10px; border:1px dashed var(--line); }
 
+  /* ---- Security scan ---- */
+  .domain-card{ background:var(--bg-panel); padding:16px 18px; }
+  .domain-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .domain-meta{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .chip{ font-family:'JetBrains Mono',monospace; font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid var(--line); color:var(--ink-soft); white-space:nowrap; }
+  .chip.ok{ color:var(--cyan); border-color:rgba(34,229,216,0.35); }
+  .chip.warn{ color:var(--amber); border-color:rgba(255,176,32,0.35); }
+  .grade{ width:44px; height:44px; flex-shrink:0; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Unbounded',sans-serif; font-weight:900; font-size:18px; border:1.5px solid currentColor; line-height:1; }
+  .grade small{ font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:500; margin-top:3px; }
+  .grade.g-A, .grade.g-B{ color:var(--cyan); }
+  .grade.g-C{ color:var(--amber); }
+  .grade.g-D, .grade.g-F{ color:var(--magenta); }
+  .grade.g-none{ color:var(--ink-soft); }
+  .link-btn{ background:none; border:none; color:var(--cyan); font-size:13px; font-weight:600; cursor:pointer; padding:0; }
+  .panel{ margin-top:14px; border-top:1px solid var(--line); padding-top:14px; }
+  .verify-box{ background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:12px; font-size:13px; color:var(--ink-soft); }
+  .verify-box code{ display:block; margin:8px 0; padding:8px 10px; background:var(--bg-panel-hi); border-radius:6px; color:var(--ink); font-family:'JetBrains Mono',monospace; font-size:12px; word-break:break-all; user-select:all; }
+  .finding{ padding:12px 0; border-bottom:1px solid var(--line); }
+  .finding:last-child{ border-bottom:none; }
+  .finding-head{ display:flex; gap:10px; align-items:baseline; }
+  .sev{ font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700; letter-spacing:0.05em; padding:2px 6px; border-radius:4px; flex-shrink:0; text-transform:uppercase; }
+  .sev-critical{ background:var(--magenta); color:#1a0510; }
+  .sev-high{ background:rgba(255,61,138,0.18); color:var(--magenta); }
+  .sev-medium{ background:rgba(255,176,32,0.16); color:var(--amber); }
+  .sev-low{ background:rgba(241,244,249,0.08); color:var(--ink); }
+  .sev-info{ background:transparent; color:var(--ink-soft); border:1px solid var(--line); }
+  .finding-title{ font-weight:600; font-size:14px; }
+  .finding-detail{ font-size:13px; color:var(--ink-soft); margin-top:4px; }
+  .finding-fix{ font-size:13px; margin-top:6px; }
+  .finding-fix b{ color:var(--cyan); font-weight:600; }
+  .scan-note{ font-size:12px; color:var(--ink-soft); margin-top:10px; }
+  @media (max-width:520px){ .add-row{ flex-direction:column; } .domain-top{ align-items:flex-start; } }
+
   .hidden{ display:none !important; }
 </style>
 </head>
@@ -144,6 +177,15 @@
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2eWZmeXp6b2xvaWlvb2VhYXVwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyNjIyODgsImV4cCI6MjEwMjgzODI4OH0.CKTTn-UYD9i4gpRo-sBFsY86x6tx0EF4anhwWnG2zWQ";
 
   const { createClient } = supabase;
+
+  // Everything shown from the database or the scanner (including CVE
+  // text pulled from outside sources) goes through this before it
+  // touches innerHTML, so it can't inject script into the page.
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, function(c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
   const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   let isSignUp = false;
@@ -201,7 +243,7 @@
     });
 
     if (error) {
-      authMessage.innerHTML = '<div class="message error">' + error.message + '</div>';
+      authMessage.innerHTML = '<div class="message error">' + escapeHtml(error.message) + '</div>';
     } else {
       authMessage.innerHTML = '<div class="message success">Check your email for a password reset link.</div>';
     }
@@ -247,7 +289,7 @@
       authSubmit.disabled = true;
       const { error } = await db.auth.updateUser({ password });
       if (error) {
-        authMessage.innerHTML = '<div class="message error">' + error.message + '</div>';
+        authMessage.innerHTML = '<div class="message error">' + escapeHtml(error.message) + '</div>';
       } else {
         authMessage.innerHTML = '<div class="message success">Password updated. Reloading...</div>';
         setTimeout(() => location.reload(), 2000);
@@ -302,7 +344,7 @@
     const { error } = await db.rpc("delete_own_account");
 
     if (error) {
-      dashboardMessage.innerHTML = '<div class="message error">' + error.message + '</div>';
+      dashboardMessage.innerHTML = '<div class="message error">' + escapeHtml(error.message) + '</div>';
       deleteAccountBtn.disabled = false;
       return;
     }
@@ -347,11 +389,11 @@
   async function loadDomains() {
     const { data, error } = await db
       .from("domains")
-      .select("id, hostname, created_at")
+      .select("id, hostname, created_at, verify_token, verified_at, alert_state(security_score, security_findings, last_security_scan_at, last_ssl_days_left, last_domain_days_left)")
       .order("created_at", { ascending: false });
 
     if (error) {
-      dashboardMessage.innerHTML = '<div class="message error">' + error.message + '</div>';
+      dashboardMessage.innerHTML = '<div class="message error">' + escapeHtml(error.message) + '</div>';
       return;
     }
 
@@ -363,29 +405,116 @@
 
     emptyStateEl.classList.add("hidden");
     domainListEl.classList.remove("hidden");
-    domainListEl.innerHTML = data.map(function(d) {
-      return '<div class="domain-row" data-id="' + d.id + '">' +
-        '<div>' +
-          '<div class="domain-name">' + d.hostname + '</div>' +
-          '<div class="domain-added">Added ' + new Date(d.created_at).toLocaleDateString() + '</div>' +
-        '</div>' +
-        '<button class="remove-btn" data-id="' + d.id + '">Remove</button>' +
-      '</div>';
-    }).join("");
+    domainListEl.innerHTML = data.map(renderDomain).join("");
 
     document.querySelectorAll(".remove-btn").forEach(function(btn) {
       btn.addEventListener("click", async function() {
         const id = btn.getAttribute("data-id");
+        if (!confirm("Stop monitoring this domain?")) return;
         await db.from("domains").delete().eq("id", id);
         await loadDomains();
       });
     });
+
+    document.querySelectorAll("[data-toggle]").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        const panel = document.getElementById(btn.getAttribute("data-toggle"));
+        panel.classList.toggle("hidden");
+      });
+    });
+  }
+
+  function gradeFor(score) {
+    if (score == null) return null;
+    if (score >= 90) return "A";
+    if (score >= 80) return "B";
+    if (score >= 65) return "C";
+    if (score >= 50) return "D";
+    return "F";
+  }
+
+  function renderDomain(d) {
+    // alert_state is one-to-one, but may come back as an object or a one-item array.
+    const st = Array.isArray(d.alert_state) ? d.alert_state[0] : d.alert_state;
+    const score = st ? st.security_score : null;
+    const grade = gradeFor(score);
+    const findings = (st && st.security_findings) || [];
+    const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+    findings.forEach(function(f) { if (f.severity in counts) counts[f.severity]++; });
+    const id = escapeHtml(d.id);
+
+    const chips = [];
+    if (d.verified_at) chips.push('<span class="chip ok">✓ verified</span>');
+    else chips.push('<span class="chip warn">unverified</span>');
+    if (st && st.last_ssl_days_left != null) chips.push('<span class="chip">SSL ' + escapeHtml(st.last_ssl_days_left) + 'd</span>');
+    if (st && st.last_domain_days_left != null) chips.push('<span class="chip">reg ' + escapeHtml(st.last_domain_days_left) + 'd</span>');
+    if (counts.critical) chips.push('<span class="chip" style="color:var(--magenta);">' + counts.critical + ' critical</span>');
+    if (counts.high) chips.push('<span class="chip" style="color:var(--magenta);">' + counts.high + ' high</span>');
+    if (counts.medium) chips.push('<span class="chip warn">' + counts.medium + ' medium</span>');
+
+    const gradeBox = grade
+      ? '<div class="grade g-' + grade + '">' + grade + '<small>' + escapeHtml(score) + '</small></div>'
+      : '<div class="grade g-none" title="Not scanned yet">–<small>new</small></div>';
+
+    let verifyPanel = "";
+    if (!d.verified_at) {
+      verifyPanel =
+        '<div class="panel hidden" id="verify-' + id + '">' +
+          '<div class="verify-box">' +
+            'Prove you own this domain to unlock active checks (exposed .git, .env, database dumps). Add this <b>TXT</b> record to <b>' + escapeHtml(d.hostname) + '</b> at your DNS provider:' +
+            '<code>certwatch-verify=' + escapeHtml(d.verify_token) + '</code>' +
+            'It\'s picked up on the next daily scan. Leave the record in place; if it\'s removed, active checks stop.' +
+          '</div>' +
+        '</div>';
+    }
+
+    let findingsHtml;
+    if (!st || !st.last_security_scan_at) {
+      findingsHtml = '<p class="scan-note">Not scanned yet. Results appear after the next daily run.</p>';
+    } else if (findings.length === 0) {
+      findingsHtml = '<p class="scan-note">No issues found. Nice.</p>';
+    } else {
+      findingsHtml = findings.map(function(f) {
+        const sev = ["critical", "high", "medium", "low", "info"].indexOf(f.severity) > -1 ? f.severity : "info";
+        return '<div class="finding">' +
+          '<div class="finding-head"><span class="sev sev-' + sev + '">' + sev + '</span>' +
+          '<span class="finding-title">' + escapeHtml(f.title) + '</span></div>' +
+          '<div class="finding-detail">' + escapeHtml(f.detail) + '</div>' +
+          '<div class="finding-fix"><b>Fix:</b> ' + escapeHtml(f.fix) + '</div>' +
+        '</div>';
+      }).join("");
+      findingsHtml += '<p class="scan-note">Last scanned ' + escapeHtml(new Date(st.last_security_scan_at).toLocaleString()) + '</p>';
+    }
+
+    return '<div class="domain-card">' +
+      '<div class="domain-top">' +
+        gradeBox +
+        '<div style="flex:1; min-width:0;">' +
+          '<div class="domain-name" style="overflow-wrap:anywhere;">' + escapeHtml(d.hostname) + '</div>' +
+          '<div class="domain-added">Added ' + escapeHtml(new Date(d.created_at).toLocaleDateString()) + '</div>' +
+        '</div>' +
+        '<button class="remove-btn" data-id="' + id + '">Remove</button>' +
+      '</div>' +
+      '<div class="domain-meta">' + chips.join("") + '</div>' +
+      '<div style="display:flex; gap:16px; margin-top:12px;">' +
+        '<button class="link-btn" data-toggle="findings-' + id + '">Attacker\'s view (' + findings.length + ')</button>' +
+        (d.verified_at ? '' : '<button class="link-btn" data-toggle="verify-' + id + '">Verify ownership</button>') +
+      '</div>' +
+      verifyPanel +
+      '<div class="panel hidden" id="findings-' + id + '">' + findingsHtml + '</div>' +
+    '</div>';
   }
 
   addDomainBtn.addEventListener("click", async () => {
-    const hostname = newDomainInput.value.trim().toLowerCase();
+    // Accept pasted URLs like "https://Example.com/path" and keep just the hostname.
+    const hostname = newDomainInput.value.trim().toLowerCase()
+      .replace(/^[a-z]+:\/\//, "").replace(/[\/?#:].*$/, "").replace(/\.$/, "");
     dashboardMessage.innerHTML = "";
     if (!hostname) return;
+    if (!/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(hostname)) {
+      dashboardMessage.innerHTML = '<div class="message error">Enter a public domain name like example.com (no IP addresses).</div>';
+      return;
+    }
 
     addDomainBtn.disabled = true;
     const { error } = await db
@@ -393,7 +522,7 @@
       .insert({ account_id: currentAccountId, hostname: hostname });
 
     if (error) {
-      dashboardMessage.innerHTML = '<div class="message error">' + error.message + '</div>';
+      dashboardMessage.innerHTML = '<div class="message error">' + escapeHtml(error.message) + '</div>';
     } else {
       newDomainInput.value = "";
       await loadDomains();

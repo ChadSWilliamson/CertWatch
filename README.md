@@ -7,7 +7,7 @@ A full-stack SSL, domain, and DNS monitoring tool — built solo, end-to-end, as
 
 ## What it does
 
-CertWatch watches a website's "vitals" and alerts the owner before something breaks:
+ VigiaRecon watches a website's "vitals" and alerts the owner before something breaks:
 
 - **SSL certificate monitoring** — flags certificates expiring within 30/14/3 days
 - **Domain expiration monitoring** — via RDAP (with a WHOIS API fallback for domains RDAP doesn't cover)
@@ -28,7 +28,7 @@ Each domain gets a daily 0–100 score and letter grade, built from what an atta
 | **Vulnerability intel** (`vuln-intel.mjs`) | every domain | Open risky ports and known CVEs per IP from Shodan InternetDB; CVE severity, CISA KEV status, and EPSS from Shodan CVEDB; version-based CVE matches for software seen in headers |
 | **Active** (`active-scan.mjs`) | **verified domains only** | ~15 polite requests for leaked `.git`, `.env`, SQL dumps, config backups, `.htpasswd`, server-status, phpinfo, Spring actuator, phpMyAdmin; security.txt presence |
 
-**Ownership gate:** active checks only run after the customer adds a `certwatch-verify=<token>` DNS TXT record, re-checked every run. The database ignores any attempt to self-mark a domain verified, and the scanner refuses hostnames that resolve to private or internal addresses (SSRF protection).
+**Ownership gate:** active checks only run after the customer adds a `VigiaRecon-verify=<token>` DNS TXT record, re-checked every run. The database ignores any attempt to self-mark a domain verified, and the scanner refuses hostnames that resolve to private or internal addresses (SSRF protection).
 
 Try it on one domain locally: `npm run scan -- example.com` (passive only), or add `--token <token>` for active checks on a domain you've verified. Tests: `npm test`.
 
@@ -40,7 +40,7 @@ Try it on one domain locally: `npm run scan -- example.com` (passive only), or a
 - **Database**: **Supabase** (Postgres) with Row Level Security, storing accounts, domains, and per-domain alert state
 - **Auth & customer dashboard** (`dashboard.html`): a single-file app using Supabase Auth (signup/login/password reset) and Supabase Storage (avatar uploads) — no build tooling required
 - **Alerting**: Resend API for transactional email
-- **Landing page** (`certwatch-landing.html` / `index.html`): a from-scratch design built around a "live vitals monitor" concept
+- **Landing page** (`VigiaRecon-landing.html` / `index.html`): a from-scratch design built around a "live vitals monitor" concept
 
 ## Why these choices
 

@@ -1,4 +1,5 @@
-# CertWatch
+# VigiaRecon
+
 
 A full-stack SSL, domain, and DNS monitoring tool — built solo, end-to-end, as a hands-on learning project covering backend automation, database design, authentication, and frontend development.
 

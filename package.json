@@ -1,5 +1,10 @@
 {
   "type": "module",
+  "scripts": {
+    "test": "node --test test/security.test.mjs",
+    "scan": "node scan-one.mjs",
+    "lint": "eslint ."
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0"
   },

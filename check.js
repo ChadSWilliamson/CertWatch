@@ -6,6 +6,11 @@
  * Certificate Transparency, DNS changes), sends alerts through
  * Resend, and saves results back to Supabase — no more local
  * alert-state.json file, and no more hardcoded test account.
+ *
+ * Also runs the outside-in security scan (security-scan.mjs):
+ * email spoofing defenses, web exposure, known CVEs, and — for
+ * domains the customer has verified via DNS — active checks for
+ * leaked files like .git and .env.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -14,6 +19,9 @@ import { checkDomainExpiryWithRetry } from "./rdap-lookup.mjs";
 import { checkNewCertificates } from "./cert-transparency.mjs";
 import { getDnsSnapshot, hasDnsChanged } from "./dns-check.mjs";
 import { extractSubdomains, checkSubdomainTakeovers } from "./subdomain-takeover.mjs";
+import { runSecurityScan } from "./security-scan.mjs";
+import { isDomainVerified } from "./domain-verify.mjs";
+import { ALERT_SEVERITIES } from "./findings.mjs";
 
 const ALERT_THRESHOLDS = [30, 14, 3]; // days out
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -27,7 +35,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 async function loadDomainsToCheck() {
   const { data, error } = await supabase
     .from("domains")
-    .select("id, hostname, accounts(email)");
+    .select("id, hostname, verify_token, verified_at, accounts(email)");
 
   if (error) throw new Error(`Failed to load domains: ${error.message}`);
 
@@ -35,13 +43,18 @@ async function loadDomainsToCheck() {
     domainId: row.id,
     hostname: row.hostname,
     email: row.accounts.email,
+    verifyToken: row.verify_token,
+    wasVerified: Boolean(row.verified_at),
   }));
 }
 
 // ---- 2. Load / save the "notebook" — now a real database table -----
 
 function defaultDomainState() {
-  return { ssl: null, domain: null, knownCertIds: [], dnsSnapshot: null, flaggedTakeoverHostnames: [] };
+  return {
+    ssl: null, domain: null, knownCertIds: [], dnsSnapshot: null, flaggedTakeoverHostnames: [],
+    securityAlertedKeys: [], securityFindings: [], securityScore: null, lastSecurityScanAt: null,
+  };
 }
 
 async function loadState() {
@@ -56,6 +69,10 @@ async function loadState() {
       knownCertIds: row.known_cert_ids || [],
       dnsSnapshot: row.dns_snapshot,
       flaggedTakeoverHostnames: row.flagged_takeover_hostnames || [],
+      securityAlertedKeys: row.security_alerted_keys || [],
+      securityFindings: row.security_findings || [],
+      securityScore: row.security_score,
+      lastSecurityScanAt: row.last_security_scan_at,
     };
   }
   return state;
@@ -72,6 +89,10 @@ async function saveState(state) {
     last_checked_at: new Date().toISOString(),
     last_ssl_days_left: s.lastSslDaysLeft ?? null,
     last_domain_days_left: s.lastDomainDaysLeft ?? null,
+    security_findings: s.securityFindings,
+    security_score: s.securityScore,
+    security_alerted_keys: s.securityAlertedKeys,
+    last_security_scan_at: s.lastSecurityScanAt,
   }));
 
   const { error } = await supabase.from("alert_state").upsert(rows, {
@@ -120,13 +141,59 @@ function shouldAlert(state, domainId, checkType, daysLeft) {
   return true;
 }
 
-// ---- 4. Main runner ------------------------------------------------
+// ---- 4. Outside-in security scan ---------------------------------
+
+const SEVERITY_ICON = new Map([["critical", "🚨"], ["high", "🔴"], ["medium", "🟠"], ["low", "🟡"], ["info", "ℹ️"]]);
+
+async function runSecurityForDomain(domainState, { domainId, hostname, email, verifyToken, wasVerified }) {
+  // Ownership is re-checked every run, so active scanning stops on
+  // its own if the TXT record is removed or the domain changes hands.
+  const verified = await isDomainVerified(hostname, verifyToken);
+  if (verified !== wasVerified) {
+    console.log(`  Verification: ${verified ? "now verified" : "no longer verified"}`);
+    const { error } = await supabase
+      .from("domains")
+      .update({ verified_at: verified ? new Date().toISOString() : null })
+      .eq("id", domainId);
+    if (error) console.error(`  Couldn't save verification status:`, error.message);
+  }
+
+  const report = await runSecurityScan(hostname, { verified });
+  console.log(`  Security: score ${report.score} (${report.grade}), ${report.findings.length} finding(s)${verified ? ", active checks ran" : ""}`);
+
+  // Alert on medium+ findings we haven't already emailed about.
+  // Keys of resolved findings drop off, so a problem that comes
+  // back later gets alerted again.
+  const alertable = report.findings.filter((f) => ALERT_SEVERITIES.has(f.severity));
+  const alreadySent = new Set(domainState.securityAlertedKeys);
+  const fresh = alertable.filter((f) => !alreadySent.has(f.key));
+
+  if (fresh.length > 0) {
+    console.log(`  → Sending security alert (${fresh.length} new) to ${email}`);
+    const lines = fresh.map(
+      (f) => `${SEVERITY_ICON.get(f.severity) || ""} [${f.severity.toUpperCase()}] ${f.title}\n   ${f.detail}\n   Fix: ${f.fix}`
+    );
+    const worst = fresh[0].severity; // findings are sorted worst-first
+    await sendAlert(
+      email,
+      `${SEVERITY_ICON.get(worst) || ""} ${fresh.length} new security finding(s) for ${hostname} — score ${report.score}/100`,
+      `CertWatch looked at ${hostname} the way an attacker would, from the outside.\n\nScore: ${report.score}/100 (grade ${report.grade})\n\n${lines.join("\n\n")}\n\nFull report in your dashboard: https://chadswilliamson.github.io/CertWatch/dashboard.html`
+    );
+  }
+
+  domainState.securityAlertedKeys = alertable.map((f) => f.key);
+  domainState.securityFindings = report.findings;
+  domainState.securityScore = report.score;
+  domainState.lastSecurityScanAt = report.scannedAt;
+}
+
+// ---- 5. Main runner ------------------------------------------------
 
 async function runChecks() {
   const domains = await loadDomainsToCheck();
   const state = await loadState();
 
-  for (const { domainId, hostname, email } of domains) {
+  for (const { domainId, hostname, email, verifyToken, wasVerified } of domains) {
     console.log(`Checking ${hostname} (${email})...`);
     state[domainId] = { ...defaultDomainState(), ...state[domainId] };
 
@@ -237,6 +304,12 @@ async function runChecks() {
       state[domainId].dnsSnapshot = currentSnapshot;
     } catch (err) {
       console.error(`  DNS check failed:`, err.message);
+    }
+
+    try {
+      await runSecurityForDomain(state[domainId], { domainId, hostname, email, verifyToken, wasVerified });
+    } catch (err) {
+      console.error(`  Security scan failed:`, err.message);
     }
   }
 

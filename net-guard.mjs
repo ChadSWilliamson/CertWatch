@@ -1,10 +1,10 @@
 /**
  * net-guard.mjs
  * -----------------------------------------------------------------
- * Safety check before CertWatch connects to anything a customer
+ * Safety check before Vigía Recon connects to anything a customer
  * typed in. Customers control the hostname, so without this they
  * could point the scanner at private addresses (127.0.0.1, cloud
- * metadata at 169.254.169.254, a 10.x network) and use CertWatch
+ * metadata at 169.254.169.254, a 10.x network) and use Vigía Recon
  * to poke at things it should never touch. This is standard SSRF
  * protection for any tool that fetches user-supplied URLs.
  */

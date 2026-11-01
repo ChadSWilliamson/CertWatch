@@ -1,4 +1,4 @@
-name: CertWatch Uptime Check
+name: Vigía Recon Uptime Check
 
 on:
   schedule:

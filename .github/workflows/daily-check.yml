@@ -1,4 +1,4 @@
-name: CertWatch Daily Check
+name: Vigía Recon Daily Check
 
 on:
   schedule:

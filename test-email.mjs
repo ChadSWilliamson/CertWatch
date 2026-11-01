@@ -32,10 +32,10 @@ async function main() {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: "onboarding@resend.dev",
+      from: "Vigía Recon <onboarding@resend.dev>",
       to: YOUR_EMAIL,
-      subject: "⚠️ Test alert from CertWatch",
-      text: "If you're reading this, your CertWatch alert system works. This is exactly what a real SSL or domain expiration warning will look like.",
+      subject: "⚠️ Test alert from Vigía Recon",
+      text: "If you're reading this, your Vigía Recon alert system works. This is exactly what a real SSL or domain expiration warning will look like.",
     }),
   });
 

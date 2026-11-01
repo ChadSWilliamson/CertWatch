@@ -1,5 +1,5 @@
 /**
- * CertWatch — uptime check
+ * Vigía Recon — uptime check
  * -----------------------------------------------------------------
  * Runs every ~15 minutes via a separate GitHub Actions workflow
  * (uptime-check.yml) — much more often than the once-a-day SSL/
@@ -29,7 +29,7 @@ async function sendAlert(toEmail, subject, body) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: "onboarding@resend.dev",
+      from: "Vigía Recon <onboarding@resend.dev>",
       to: toEmail,
       subject,
       text: body,

@@ -12,7 +12,7 @@
  *
  * Kept deliberately small and polite:
  *   - ~15 GET requests per domain, one at a time
- *   - identifies itself with a CertWatch User-Agent
+ *   - identifies itself with a Vigía Recon User-Agent
  *   - never follows redirects, never sends data, never logs in
  *   - only reads the first 64 KB of any response
  *

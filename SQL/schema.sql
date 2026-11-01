@@ -1,4 +1,4 @@
--- CertWatch database schema
+-- Vigía Recon database schema
 -- -----------------------------------------------------------------
 -- Paste this whole thing into Supabase's SQL Editor and click Run.
 -- It creates three tables: accounts, domains, and alert_state.

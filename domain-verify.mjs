@@ -1,14 +1,14 @@
 /**
  * domain-verify.mjs
  * -----------------------------------------------------------------
- * Proves a customer actually controls a domain before CertWatch
+ * Proves a customer actually controls a domain before Vigía Recon
  * runs any ACTIVE checks against it (requesting sensitive file
  * paths, etc.). Passive checks run on everything; active checks
  * only run on verified domains.
  *
  * Why: without this, anyone could add someone else's domain and
- * use CertWatch to probe it. That's unauthorized scanning, and it
- * would make CertWatch the tool doing it.
+ * use Vigía Recon to probe it. That's unauthorized scanning, and it
+ * would make Vigía Recon the tool doing it.
  *
  * How: same method Google Search Console and most SaaS tools use.
  * The dashboard shows a unique token; the customer adds it as a

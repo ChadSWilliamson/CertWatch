@@ -1,5 +1,5 @@
 /**
- * CertWatch — domain registration expiry lookup
+ * Vigía Recon — domain registration expiry lookup
  * -----------------------------------------------------------------
  * Strategy: try RDAP first (free, no key, structured JSON, run by
  * the registries themselves). Only fall back to a paid WHOIS API

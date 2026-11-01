@@ -1,5 +1,5 @@
 /**
- * CertWatch — core monitoring check
+ * Vigía Recon — core monitoring check
  * -----------------------------------------------------------------
  * Runs once a day via GitHub Actions. Pulls every real account and
  * domain from Supabase, checks each one (SSL, domain registration,
@@ -119,7 +119,7 @@ async function sendAlert(toEmail, subject, body) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: "onboarding@resend.dev",
+      from: "Vigía Recon <onboarding@resend.dev>",
       to: toEmail,
       subject,
       text: body,
@@ -177,7 +177,7 @@ async function runSecurityForDomain(domainState, { domainId, hostname, email, ve
     await sendAlert(
       email,
       `${SEVERITY_ICON.get(worst) || ""} ${fresh.length} new security finding(s) for ${hostname} — score ${report.score}/100`,
-      `CertWatch looked at ${hostname} the way an attacker would, from the outside.\n\nScore: ${report.score}/100 (grade ${report.grade})\n\n${lines.join("\n\n")}\n\nFull report in your dashboard: https://chadswilliamson.github.io/CertWatch/dashboard.html`
+      `Vigía Recon looked at ${hostname} the way an attacker would, from the outside.\n\nScore: ${report.score}/100 (grade ${report.grade})\n\n${lines.join("\n\n")}\n\nFull report in your dashboard: https://chadswilliamson.github.io/Vigía Recon/dashboard.html`
     );
   }
 
@@ -317,5 +317,5 @@ async function runChecks() {
   console.log("\nSaved alert state to Supabase.");
 }
 
-console.log("Starting CertWatch check run...\n");
+console.log("Starting Vigía Recon check run...\n");
 runChecks().then(() => console.log("\nCheck run finished."));

@@ -15,7 +15,7 @@
  * Shodan what it already saw.
  *
  * Licensing note: InternetDB and CVEDB are free for non-commercial
- * use. Fine for CertWatch as a portfolio project; a paid launch
+ * use. Fine for Vigía Recon as a portfolio project; a paid launch
  * would need a Shodan license (same situation as Google Safe
  * Browsing, which we skipped for that reason).
  */
